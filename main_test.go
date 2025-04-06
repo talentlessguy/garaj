@@ -1,9 +1,11 @@
 package main_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	garaj "github.com/talentlessguy/garaj"
@@ -28,7 +30,7 @@ func TestPutHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	maxBodyBytes := int64(32) << 20
+	maxBodyBytes := int64(64) << 20
 	handler := garaj.PutHandler(token, maxBodyBytes)
 
 	w := httptest.NewRecorder()
@@ -50,7 +52,7 @@ func TestPutHandler(t *testing.T) {
 	r.Header.Set("X-API-Key", "invalid-token")
 	handler(w, r)
 	if w.Code != http.StatusForbidden {
-		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusBadRequest)
+		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusForbidden)
 	}
 
 	w = httptest.NewRecorder()
@@ -67,7 +69,7 @@ func TestPutHandler(t *testing.T) {
 	r.Header.Set("Content-Type", "invalid-content-type")
 	handler(w, r)
 	if w.Code != http.StatusUnsupportedMediaType {
-		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusBadRequest)
+		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusUnsupportedMediaType)
 	}
 
 	w = httptest.NewRecorder()
@@ -77,5 +79,30 @@ func TestPutHandler(t *testing.T) {
 	handler(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusOK)
+	}
+
+	// Testing with huge binary file
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/put", bytes.NewReader(make([]byte, int64(64)<<20)))
+	r.Header.Set("X-API-Key", token)
+	r.Header.Set("Content-Type", garaj.CarContentType)
+	handler(w, r)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	// Testing with an actual CAR file
+	carFile, err := os.ReadFile("./fixtures/test.car")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/put", bytes.NewReader(carFile))
+
+	r.Header.Set("X-API-Key", token)
+	r.Header.Set("Content-Type", garaj.CarContentType)
+	handler(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("handler returned wrong status code: got %v want %v", w.Code, http.StatusInternalServerError)
 	}
 }
