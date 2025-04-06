@@ -19,7 +19,7 @@ var (
 	maxBodyMB = flag.Int("max-body-mb", 32, "Maximum allowed CAR file size in megabytes")
 )
 
-func putCarFileToKubo(blob []byte, filename string) error {
+func PutCarFileToKubo(blob []byte, filename string) error {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -62,7 +62,7 @@ func putCarFileToKubo(blob []byte, filename string) error {
 	return nil
 }
 
-func generateSecureToken(length int) (string, error) {
+func GenerateSecureToken(length int) (string, error) {
 	b := make([]byte, length)
 	_, err := rand.Read(b)
 	if err != nil {
@@ -75,22 +75,8 @@ const (
 	CarContentType = "application/vnd.ipld.car"
 )
 
-func main() {
-	flag.Parse()
-
-	mux := http.NewServeMux()
-
-	token, err := generateSecureToken(32)
-
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("API key (stored in-memory): %s\n", token)
-
-	maxBodyBytes := int64(*maxBodyMB) << 20
-
-	mux.HandleFunc("/put", func(w http.ResponseWriter, r *http.Request) {
+func PutHandler(token string, maxBodyBytes int64) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Accept", CarContentType)
 		switch r.Method {
@@ -106,19 +92,19 @@ func main() {
 			contentType := r.Header.Get("Content-Type")
 			if contentType == "" {
 				http.Error(w, `{
-					"error": "Bad Request",
-					"message": "Content-Type header is required",
-					"required_content_type": "`+CarContentType+`"
-				}`, http.StatusBadRequest)
+				"error": "Bad Request",
+				"message": "Content-Type header is required",
+				"required_content_type": "`+CarContentType+`"
+			}`, http.StatusBadRequest)
 				return
 			}
 			if contentType != CarContentType {
 				http.Error(w, `{
-					"error": "Unsupported Media Type",
-					"message": "Only CAR files are accepted",
-					"received_content_type": "`+contentType+`",
-					"required_content_type": "`+CarContentType+`"
-				}`, http.StatusUnsupportedMediaType)
+				"error": "Unsupported Media Type",
+				"message": "Only CAR files are accepted",
+				"received_content_type": "`+contentType+`",
+				"required_content_type": "`+CarContentType+`"
+			}`, http.StatusUnsupportedMediaType)
 				return
 			}
 			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
@@ -134,17 +120,17 @@ func main() {
 			}
 			if len(body) == int(maxBodyBytes) {
 				http.Error(w, fmt.Sprintf(`{
-					"error": "Payload Too Large",
-					"message": "CAR file exceeds maximum size limit",
-					"max_size_mb": %d
-				}`, *maxBodyMB), http.StatusRequestEntityTooLarge)
+				"error": "Payload Too Large",
+				"message": "CAR file exceeds maximum size limit",
+				"max_size_mb": %d
+			}`, *maxBodyMB), http.StatusRequestEntityTooLarge)
 				return
 			}
 			name := r.Header.Get("X-Filename")
 			if name == "" {
 				name = "file.car"
 			}
-			if err := putCarFileToKubo(body, name); err != nil {
+			if err := PutCarFileToKubo(body, name); err != nil {
 				http.Error(w, `{"error": "Error processing CAR file"}`, http.StatusInternalServerError)
 				return
 			}
@@ -156,9 +142,25 @@ func main() {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			http.Error(w, `{"error": "Method Not Allowed"}`, http.StatusMethodNotAllowed)
 		}
+	}
+}
 
-	},
-	)
+func main() {
+	flag.Parse()
+
+	mux := http.NewServeMux()
+
+	token, err := GenerateSecureToken(32)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("API key (stored in-memory): %s\n", token)
+
+	maxBodyBytes := int64(*maxBodyMB) << 20
+
+	mux.HandleFunc("/put", PutHandler(token, maxBodyBytes))
 	fmt.Printf("Started a server on %s, file size limit %d MB\n", *addr, *maxBodyMB)
 	http.ListenAndServe(*addr, mux)
 }
