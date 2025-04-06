@@ -5,7 +5,7 @@ A super simple self-hostable IPFS CAR upload service.
 ## Features
 
 - Randomly generated API key stored in-memory
-- Very smol (8.1MB binary size)
+- Very smol (8.1MB binary size) and zero dependency
 - Only upload CAR files, nothing else
 - File size limit support (default 32MB)
 
